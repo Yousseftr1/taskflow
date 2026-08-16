@@ -67,6 +67,10 @@ For `main`:
 6. ☐ Allow deletions — **leave off**
 7. ☑ **Do not allow bypassing the above settings** (this is "include administrators")
 
+> **This repository already has all of the above applied to both `main` and
+> `develop`**, via the API commands below — so you can go straight to the
+> [exercises](../EXERCISES.md) and feel the rules push back.
+
 Then repeat for `develop`. You can be slightly lighter there — but requiring a
 PR and green CI should stay.
 
@@ -148,14 +152,25 @@ gh api --method PATCH \
 
 ### 2. `enforce_admins: false` → `true`
 
-As a repo admin you can currently still override the rules. That's the escape
-hatch that lets you unstick yourself while learning.
+With `enforce_admins: false`, a repo admin's push to `main` is **not** blocked —
+GitHub lets it through with a "Bypassed rule violations" warning. We proved this
+live while setting this repo up: the admin push sailed straight through.
 
-**At work, turn it on.** A rule the senior can bypass is a rule that gets
-bypassed at 6pm on a Friday, and then the team learns that the rules are
-optional.
+That's why **this repo has it turned on** (and why yours at work should too). A
+rule the senior can bypass is a rule that gets bypassed at 6pm on a Friday, and
+then the team learns that the rules are optional.
 
 ```bash
+gh api --method POST repos/Yousseftr1/taskflow/branches/main/protection/enforce_admins
+```
+
+If you genuinely need to unblock yourself (broken CI blocking the fix for
+broken CI), the break-glass is to *temporarily* remove it — visibly, and put it
+back within the hour:
+
+```bash
+gh api --method DELETE repos/Yousseftr1/taskflow/branches/main/protection/enforce_admins
+# ...do the emergency fix through a PR anyway if at all possible...
 gh api --method POST repos/Yousseftr1/taskflow/branches/main/protection/enforce_admins
 ```
 
