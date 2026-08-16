@@ -1,0 +1,16 @@
+# CODEOWNERS — who must review what.
+#
+# When a pull request touches a matching path, GitHub automatically requests a
+# review from the listed owner. Combine this with the branch-protection rule
+# "Require review from Code Owners" and it becomes impossible to merge changes
+# to these files without the right person signing off.
+#
+# Syntax: <path pattern>  <@user or @org/team>
+
+# Default owner for everything in the repository.
+*                       @Yousseftr1
+
+# Extra-sensitive paths. As your team grows, these are the ones you keep for
+# yourself even after you start trusting people with the rest of the codebase.
+/.github/               @Yousseftr1
+/supabase/migrations/   @Yousseftr1

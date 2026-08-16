@@ -1,0 +1,107 @@
+# ============================================================================
+#  CD — "Continuous Deployment"
+#
+#  CI answers "is this code good?".  CD answers "get the good code out there".
+#
+#  The rule this file encodes:
+#    merge into `develop`  ->  deploy to STAGING
+#    merge into `main`     ->  deploy to PRODUCTION
+#
+#  Nobody deploys from their laptop. Deployment is a consequence of a reviewed,
+#  merged pull request — which is exactly the habit your team is missing today.
+# ============================================================================
+
+name: Deploy
+
+on:
+  push:
+    branches: [main, develop]
+  # Lets you re-run a deployment by hand from the Actions tab if something
+  # transient failed (network blip, expired token, ...).
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false # never cancel a deploy half-way through
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy database migrations
+    runs-on: ubuntu-latest
+
+    # GitHub Environments give you: per-environment secrets, a deployment
+    # history, and optionally REQUIRED REVIEWERS — a human approval gate that
+    # pauses the workflow before it touches production.
+    environment:
+      name: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Re-run the tests against the exact commit being deployed. CI already
+      # ran them on the pull request, but the merge itself produced a new
+      # commit that no one has ever tested. This is cheap insurance.
+      - name: Re-run tests on the merge commit
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      # If the Supabase secrets are not configured yet, skip instead of
+      # failing. That keeps the pipeline green while you are still learning.
+      - name: Check whether Supabase credentials are configured
+        id: guard
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+        run: |
+          if [ -n "$SUPABASE_ACCESS_TOKEN" ] && [ -n "$SUPABASE_PROJECT_ID" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Supabase secrets not set — skipping the database migration step."
+          fi
+
+      - name: Install the Supabase CLI
+        if: steps.guard.outputs.configured == 'true'
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link the Supabase project
+        if: steps.guard.outputs.configured == 'true'
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: supabase link --project-ref "${{ secrets.SUPABASE_PROJECT_ID }}"
+
+      # `db push` applies any migration files that the remote database has not
+      # seen yet. Because migrations are committed to git and reviewed in a PR,
+      # your production schema always matches what is in the repository.
+      - name: Apply database migrations
+        if: steps.guard.outputs.configured == 'true'
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: supabase db push
+
+      - name: Deployment summary
+        run: |
+          {
+            echo "### Deployment finished"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Environment | \`${{ github.ref_name == 'main' && 'production' || 'staging' }}\` |"
+            echo "| Branch | \`${{ github.ref_name }}\` |"
+            echo "| Commit | \`${{ github.sha }}\` |"
+            echo "| Migrations applied | ${{ steps.guard.outputs.configured == 'true' && 'yes' || 'skipped (no secrets)' }} |"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,124 @@
+# ============================================================================
+#  CI — "Continuous Integration"
+#
+#  WHAT IT IS: a robot that checks out your branch and runs the same checks a
+#  careful reviewer would run, on every single push and every pull request.
+#
+#  WHY IT MATTERS FOR YOUR TEAM: once `main` is protected and these checks are
+#  marked "required", GitHub physically refuses to merge a pull request whose
+#  checks are red. Broken code can no longer reach production, even by accident.
+#
+#  Each job below becomes a separate green/red check on the pull request.
+# ============================================================================
+
+name: CI
+
+on:
+  # Run on every pull request that targets main or develop.
+  pull_request:
+    branches: [main, develop]
+  # Also run on direct pushes to the long-lived branches, so we always know
+  # the state of the integration branches themselves.
+  push:
+    branches: [main, develop]
+
+# If you push twice quickly, cancel the older run instead of paying for both.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least privilege: this workflow only ever needs to read the repository.
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the branch
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # `npm ci` installs the EXACT versions in package-lock.json.
+      # Never use `npm install` in CI — it can silently upgrade a dependency
+      # and make CI disagree with your laptop.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Run the TypeScript compiler in check-only mode
+        run: npm run typecheck
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      # Coverage thresholds live in vitest.config.ts. If a pull request drops
+      # coverage below them, this step fails and the PR cannot be merged.
+      - name: Run unit tests with coverage
+        run: npm run test:coverage
+
+      - name: Upload the coverage report
+        if: always() # upload it even when the tests failed — that is when you need it
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 7
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    # Only bother building if the cheap checks already passed.
+    needs: [lint, typecheck, test]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Compile TypeScript to dist/
+        run: npm run build
+
+  # A single check that summarises the whole pipeline. Marking just this one
+  # as "required" in branch protection means you never have to update the
+  # protection rules when you add or rename a job.
+  ci-success:
+    name: CI
+    runs-on: ubuntu-latest
+    needs: [lint, typecheck, test, build]
+    if: always()
+    steps:
+      - name: Fail if any job failed
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: |
+          echo "::error::One or more CI jobs failed. See the checks above."
+          exit 1
+      - name: All checks passed
+        run: echo "CI is green ✅"

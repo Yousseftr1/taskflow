@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+coverage/
+
+# Environment — NEVER commit real credentials.
+# .env.example IS committed (it documents which vars are needed).
+.env
+.env.local
+.env.*.local
+
+# Supabase CLI local state
+supabase/.branches/
+supabase/.temp/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Logs
+*.log
+npm-debug.log*
